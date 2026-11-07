@@ -1,0 +1,5 @@
+# Central settings for the backend.  Point RTS_LOCATION at another file to override its location.
+libgraph_engine_loc = "./graph_engine/libgraph_engine.so"
+
+[cors]
+allow_origins = ["http://localhost:5173", "http://localhost:3000"]
