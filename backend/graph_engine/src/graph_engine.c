@@ -1,5 +1,7 @@
 #include "graph_engine.h"
 
+#include "external/stb_ds.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,12 +9,27 @@
 #define NOT_FOUND SIZE_MAX
 #define FLOW_EPS 1e-12
 
+typedef struct {
+	vertex_id_t key;
+	size_t value;
+} vertex_map_entry_t;
+
+struct graph_vertex_map_t {
+	vertex_map_entry_t* entries;
+};
+
 static size_t find_vertex_index(const graph_t* g, vertex_id_t id) {
-	for (size_t i = 0; i < g->vertex_count; i++) {
-		if (g->vertices[i].id == id) return i;
+	if (!g || !g->vertex_map) {
+		return NOT_FOUND;
 	};
 
-	return NOT_FOUND;
+	ptrdiff_t index = hmgeti(g->vertex_map->entries, id);
+
+	if (index < 0) {
+		return NOT_FOUND;
+	};
+
+	return g->vertex_map->entries[index].value;
 };
 
 static size_t find_edge_index(const graph_t* g, vertex_id_t a, vertex_id_t b) {
@@ -666,10 +683,11 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 	};
 
 	*out_result = NULL;
-	const graph_status_t st = graph_validate(graph);
-	if (st != GRAPH_STATUS_OK) {
-		return st;
-	};
+	/* graph_is_connected will call this again */
+	// const graph_status_t st = graph_validate(graph);
+	// if (st != GRAPH_STATUS_OK) {
+	// 	return st;
+	// };
 
 	const size_t n = graph->vertex_count;
 	const size_t m = graph->edge_count;
