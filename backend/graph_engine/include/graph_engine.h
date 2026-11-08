@@ -33,6 +33,8 @@ typedef struct {
 	double capacity;
 } edge_t;
 
+typedef struct graph_vertex_map_t graph_vertex_map_t;
+
 typedef struct {
 	vertex_t* vertices;
 	size_t vertex_count;
@@ -42,6 +44,7 @@ typedef struct {
 	size_t edge_count;
 	size_t edge_capacity;
 
+	graph_vertex_map_t* vertex_map;
 	arena_t* arena;
 } graph_t;
 
