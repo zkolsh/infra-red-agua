@@ -15,8 +15,8 @@ DEPS := $(OBJS:.o=.d)
 
 all: debug
 
-debug: CFLAGS += -ggdb -fsanitize=address,undefined -DDEBUG
-debug: LDFLAGS += -fsanitize=address,undefined
+debug: CFLAGS += -ggdb -DDEBUG
+debug: LDFLAGS += 
 debug: $(LIB)
 
 release: CFLAGS += -O2 -Werror -DNDEBUG

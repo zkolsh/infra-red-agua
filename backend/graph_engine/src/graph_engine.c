@@ -451,7 +451,10 @@ graph_status_t graph_subgraph_from_edges(const graph_t* original, const edge_t* 
 
 	/* Keep every vertex of the original graph. */
 	if (original->vertex_count) {
-		memcpy(g->vertices, original->vertices, original->vertex_count * sizeof(vertex_t));
+		graph_status_t s = GRAPH_STATUS_OK;
+		for (size_t i = 0; i < original->vertex_count && s == GRAPH_STATUS_OK; i++) {
+			s = graph_add_vertex(g, original->vertices[i].id);
+		};
 	};
 
 	g->vertex_count = original->vertex_count;
