@@ -198,13 +198,83 @@ view model =
             List.filter (\r -> r.crecimiento == model.seleccionado) model.resultados
                 |> List.head
     in
-    div [ style "display" "flex", style "flex-direction" "column", style "gap" "20px" ]
-        [ viewEncabezado model
-        , viewSelector model
-        , viewMetricas actual
-        , viewMapSection model actual
+    div [ style "display" "flex", style "flex-direction" "row", style "gap" "20px", style "height" "calc(100vh - 40px)" ]
+        [ -- Columna Izquierda: Controles y Métricas Apilados Verticalmente
+          div [ style "display" "flex", style "flex-direction" "column", style "gap" "15px", style "width" "320px", style "flex-shrink" "0" ]
+            [ viewEncabezado model
+            , viewSelectorVertical model
+            , viewMetricasVertical actual
+            ]
+        , -- Columna Derecha: Mapa ocupando todo el alto restante
+          div [ style "flex-grow" "1", style "height" "100%" ]
+            [ viewMapSection model actual ]
         ]
 
+
+{-| Selector ajustado para columna lateral
+-}
+viewSelectorVertical : Model -> Html Msg
+viewSelectorVertical model =
+    let
+        opciones =
+            case model.base of
+                Just b ->
+                    List.map .crecimiento b.escenarios
+
+                Nothing ->
+                    []
+
+        boton pct =
+            let
+                activo =
+                    pct == model.seleccionado
+            in
+            button
+                [ onClick (ElegirCrecimiento pct)
+                , style "cursor" "pointer"
+                , style "padding" "8px 12px"
+                , style "border-radius" "6px"
+                , style "border" "1px solid #38bdf8"
+                , style "font-size" "0.9rem"
+                , style "font-weight" "bold"
+                , style "background" (if activo then "#38bdf8" else "transparent")
+                , style "color" (if activo then "#0f172a" else "#38bdf8")
+                ]
+                [ text ("+" ++ String.fromFloat pct ++ " %") ]
+    in
+    div (tarjeta ++ [ style "display" "flex", style "flex-direction" "column", style "gap" "10px" ])
+        (span [ style "color" "#cbd5e1", style "font-size" "0.9rem" ] [ text "Escenario de crecimiento:" ]
+            :: [ div [ style "display" "flex", style "flex-wrap" "wrap", style "gap" "8px" ] (List.map boton opciones) ]
+        )
+
+
+{-| Métricas globales apiladas en columna vertical
+-}
+viewMetricasVertical : Maybe Resultado -> Html Msg
+viewMetricasVertical actual =
+    let
+        saturadas =
+            actual
+                |> Maybe.map (\r -> List.length (List.filter .saturada r.aristas))
+                |> Maybe.withDefault 0
+
+        demanda =
+            actual |> Maybe.map .demandaTotal |> Maybe.withDefault 0
+
+        faltante =
+            actual |> Maybe.map .faltante |> Maybe.withDefault 0
+
+        metrica titulo valor color =
+            div (tarjeta ++ [ style "text-align" "left", style "padding" "12px 15px" ])
+                [ div [ style "color" "#94a3b8", style "font-size" "0.8rem" ] [ text titulo ]
+                , div [ style "font-size" "1.2rem", style "font-weight" "bold", style "color" color, style "margin-top" "4px" ] [ text valor ]
+                ]
+    in
+    div [ style "display" "flex", style "flex-direction" "column", style "gap" "10px" ]
+        [ metrica "Demanda total predicha" (millones demanda ++ " gal/mes") "#38bdf8"
+        , metrica "Cañerías saturadas" (String.fromInt saturadas ++ " aristas") (if saturadas > 0 then "#ef4444" else "#10b981")
+        , metrica "Demanda sin cubrir" (millones faltante ++ " gal/mes") (if faltante > 0 then "#ef4444" else "#10b981")
+        ]
 
 viewEncabezado : Model -> Html Msg
 viewEncabezado model =
@@ -427,7 +497,7 @@ viewEdgeMetricsOverlay model =
                 , Html.Attributes.style "flex-direction" "column"
                 , Html.Attributes.style "gap" "4px"
                 , Html.Attributes.style "font-size" "13px"
-                , Html.Attributes.style "min-width" "210px"
+                , Html.Attributes.style "min-width" "220px"
                 ]
                 [ Html.div
                     [ Html.Attributes.style "font-weight" "bold"
@@ -437,9 +507,9 @@ viewEdgeMetricsOverlay model =
                     ]
                     [ text ("Tubería: C.P. " ++ getZcta model.base edge.origen ++ " ➔ C.P. " ++ getZcta model.base edge.destino) ]
                 , Html.div [ Html.Attributes.style "color" "#38bdf8" ]
-                    [ text ("1. Caudal ocupado: " ++ String.fromFloat edge.flujo ++ " L/s") ]
+                    [ text ("1. Caudal ocupado: " ++ millones edge.flujo ++ " gal/mes") ]
                 , Html.div [ Html.Attributes.style "color" "#94a3b8" ]
-                    [ text ("2. Capacidad máxima: " ++ String.fromFloat edge.capacidad ++ " L/s") ]
+                    [ text ("2. Capacidad máxima: " ++ millones edge.capacidad ++ " gal/mes") ]
                 , Html.div
                     [ Html.Attributes.style "color"
                         (if sat > 80 then
