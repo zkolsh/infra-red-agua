@@ -5,3 +5,12 @@ __pycache__/
 venv/
 ENV/
 *.log
+.pytest_cache/
+.mypy_cache/
+
+
+# Elm
+frontend/elm-stuff/
+frontend/elm.js
+
+
