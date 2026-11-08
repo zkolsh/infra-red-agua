@@ -1,6 +1,7 @@
 #include "graph_engine.h"
 
 #include "external/stb_ds.h"
+#include "heap.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -14,8 +15,14 @@ typedef struct {
 	size_t value;
 } vertex_map_entry_t;
 
+typedef struct {
+	uint64_t key;
+	size_t value;
+} edge_map_entry_t;
+
 struct graph_vertex_map_t {
 	vertex_map_entry_t* entries;
+	edge_map_entry_t* edge_entries;
 };
 
 static size_t find_vertex_index(const graph_t* g, vertex_id_t id) {
@@ -32,13 +39,18 @@ static size_t find_vertex_index(const graph_t* g, vertex_id_t id) {
 	return g->vertex_map->entries[index].value;
 };
 
+static uint64_t edge_key(vertex_id_t a, vertex_id_t b) {
+	return a < b? ((uint64_t)a << 32) | b : ((uint64_t)b << 32) | a;
+};
+
 static size_t find_edge_index(const graph_t* g, vertex_id_t a, vertex_id_t b) {
-	for (size_t i = 0; i < g->edge_count; i++) {
-		const edge_t* e = &g->edges[i];
-		if ((e->source == a && e->target == b) || (e->source == b && e->target == a)) return i;
+	if (!g || !g->vertex_map) {
+		return NOT_FOUND;
 	};
 
-	return NOT_FOUND;
+	const uint64_t key = edge_key(a, b);
+	const ptrdiff_t i = hmgeti(g->vertex_map->edge_entries, key);
+	return i < 0? NOT_FOUND : g->vertex_map->edge_entries[i].value;
 };
 
 static bool valid_weight(double x) {
@@ -87,24 +99,51 @@ static graph_status_t reserve_edges(graph_t* g, size_t needed) {
 	return GRAPH_STATUS_OK;
 };
 
-/* Union-find implementation (does path compression) */
-static size_t dsu_find(size_t* parent, size_t x) {
-	while (parent[x] != x) {
-		parent[x] = parent[parent[x]];
-		x = parent[x];
+/* Union-find implementation with path compression */
+typedef struct {
+	size_t* parent;
+	size_t* size;
+} dsu_t;
+
+static bool dsu_init(arena_t* arena, dsu_t* d, size_t n) {
+	d->parent = arena_alloc(arena, n * sizeof(size_t));
+	d->size = arena_alloc(arena, n * sizeof(size_t));
+	if (!d->parent || !d->size) {
+		return false;
+	};
+
+	for (size_t i = 0; i < n; i++) {
+		d->parent[i] = i;
+		d->size[i] = 1;
+	};
+
+	return true;
+};
+
+static size_t dsu_find(dsu_t* d, size_t x) {
+	while (d->parent[x] != x) {
+		d->parent[x] = d->parent[d->parent[x]];
+		x = d->parent[x];
 	};
 
 	return x;
 };
 
-static bool dsu_union(size_t* parent, size_t a, size_t b) {
-	const size_t ra = dsu_find(parent, a);
-	const size_t rb = dsu_find(parent, b);
+static bool dsu_union(dsu_t* d, size_t a, size_t b) {
+	size_t ra = dsu_find(d, a);
+	size_t rb = dsu_find(d, b);
 	if (ra == rb) {
 		return false;
 	};
 
-	parent[ra] = rb;
+	if (d->size[ra] < d->size[rb]) {
+		const size_t t = ra;
+		ra = rb;
+		rb = t;
+	};
+
+	d->parent[rb] = ra;
+	d->size[ra] += d->size[rb];
 	return true;
 };
 
@@ -115,16 +154,19 @@ graph_t* graph_init_capacity(size_t vertex_capacity, size_t edge_capacity) {
 	};
 
 	graph_t* g = arena_calloc(a, sizeof(graph_t));
-	if (!g) {
+	graph_vertex_map_t* map = g? arena_calloc(a, sizeof(*map)) : NULL;
+	if (!g || !map) {
 		arena_deinit(a);
 		return NULL;
 	};
 
 	g->arena = a;
+	g->vertex_map = map;
 
 	if (vertex_capacity > 0) {
 		g->vertices = arena_alloc(g->arena, vertex_capacity * sizeof(vertex_t));
 		if (!g->vertices) {
+			arena_deinit(a);
 			return NULL;
 		};
 
@@ -134,6 +176,7 @@ graph_t* graph_init_capacity(size_t vertex_capacity, size_t edge_capacity) {
 	if (edge_capacity > 0) {
 		g->edges = arena_alloc(g->arena, edge_capacity * sizeof(edge_t));
 		if (!g->edges) {
+			arena_deinit(a);
 			return NULL;
 		};
 
@@ -150,6 +193,11 @@ graph_t* graph_empty(void) {
 void graph_deinit(graph_t* graph) {
 	if (!graph) {
 		return;
+	};
+
+	if (graph->vertex_map) {
+		hmfree(graph->vertex_map->entries);
+		hmfree(graph->vertex_map->edge_entries);
 	};
 
 	arena_deinit(graph->arena);
@@ -169,7 +217,9 @@ graph_status_t graph_add_vertex(graph_t* graph, vertex_id_t id) {
 		return s;
 	};
 
-	graph->vertices[graph->vertex_count++].id = id;
+	const size_t index = graph->vertex_count++;
+	graph->vertices[index].id = id;
+	hmput(graph->vertex_map->entries, id, index);
 
 	return GRAPH_STATUS_OK;
 };
@@ -195,17 +245,20 @@ graph_status_t graph_add_edge(graph_t* graph, vertex_id_t source, vertex_id_t ta
 		return GRAPH_STATUS_EDGE_ALREADY_EXISTS;
 	};
 
-	graph_status_t s = reserve_edges(graph, graph->edge_count + 1);
+	const graph_status_t s = reserve_edges(graph, graph->edge_count + 1);
 	if (s != GRAPH_STATUS_OK) {
 		return s;
 	};
 
-	edge_t* e = &graph->edges[graph->edge_count++];
+	const size_t index = graph->edge_count++;
+	edge_t* e = &graph->edges[index];
 	e->source = source;
 	e->target = target;
 	e->construction_cost = construction_cost;
 	e->capacity = capacity;
 
+	const uint64_t key = edge_key(source, target);
+	hmput(graph->vertex_map->edge_entries, key, index);
 	return GRAPH_STATUS_OK;
 };
 
@@ -238,8 +291,16 @@ graph_status_t graph_remove_edge(graph_t* graph, vertex_id_t source, vertex_id_t
 		return GRAPH_STATUS_EDGE_NOT_FOUND;
 	};
 
+	const uint64_t removed = edge_key(source, target);
+	(void)hmdel(graph->vertex_map->edge_entries, removed);
+
 	memmove(&graph->edges[i], &graph->edges[i + 1], (graph->edge_count - i - 1) * sizeof(edge_t));
 	graph->edge_count--;
+
+	for (size_t j = i; j < graph->edge_count; j++) {
+		const uint64_t key = edge_key(graph->edges[j].source, graph->edges[j].target);
+		hmput(graph->vertex_map->edge_entries, key, j);
+	};
 
 	return GRAPH_STATUS_OK;
 };
@@ -308,31 +369,36 @@ size_t graph_get_edges(const graph_t* graph, edge_t* out_edges, size_t capacity)
 	return n;
 };
 
-graph_status_t graph_validate(const graph_t* graph) {
-	if (!graph) return GRAPH_STATUS_INVALID_ARGUMENT;
-	if (graph->vertex_count > graph->vertex_capacity || graph->edge_count > graph->edge_capacity) {
+graph_status_t graph_validate(const graph_t* g) {
+	if (!g || !g->vertex_map) {
+		return GRAPH_STATUS_INVALID_ARGUMENT;
+	};
+
+	if (g->vertex_count > g->vertex_capacity || g->edge_count > g->edge_capacity) {
 		return GRAPH_STATUS_INVALID_GRAPH;
 	};
 
-	if ((graph->vertex_count && !graph->vertices) || (graph->edge_count && !graph->edges)) {
+	if ((g->vertex_count && !g->vertices) || (g->edge_count && !g->edges)) {
 		return GRAPH_STATUS_INVALID_GRAPH;
 	};
 
-	for (size_t i = 0; i < graph->vertex_count; i++) {
-		for (size_t j = i + 1; j < graph->vertex_count; j++) {
-			if (graph->vertices[i].id == graph->vertices[j].id) {
-				return GRAPH_STATUS_INVALID_GRAPH;
-			};
+	if ((size_t)hmlen(g->vertex_map->entries) != g->vertex_count || (size_t)hmlen(g->vertex_map->edge_entries) != g->edge_count) {
+		return GRAPH_STATUS_INVALID_GRAPH; /* duplicates collapsed into one map entry */
+	};
+
+	for (size_t i = 0; i < g->vertex_count; i++) {
+		if (find_vertex_index(g, g->vertices[i].id) != i) {
+			return GRAPH_STATUS_INVALID_GRAPH;
 		};
 	};
 
-	for (size_t i = 0; i < graph->edge_count; i++) {
-		const edge_t* e = &graph->edges[i];
-		if (find_vertex_index(graph, e->source) == NOT_FOUND || find_vertex_index(graph, e->target) == NOT_FOUND) {
+	for (size_t i = 0; i < g->edge_count; i++) {
+		const edge_t* e = &g->edges[i];
+		if (e->source == e->target) {
 			return GRAPH_STATUS_INVALID_GRAPH;
 		};
 
-		if (e->source == e->target) {
+		if (find_vertex_index(g, e->source) == NOT_FOUND || find_vertex_index(g, e->target) == NOT_FOUND) {
 			return GRAPH_STATUS_INVALID_GRAPH;
 		};
 
@@ -340,41 +406,34 @@ graph_status_t graph_validate(const graph_t* graph) {
 			return GRAPH_STATUS_INVALID_GRAPH;
 		};
 
-		for (size_t j = i + 1; j < graph->edge_count; j++) {
-			const edge_t* f = &graph->edges[j];
-			if ((e->source == f->source && e->target == f->target) || (e->source == f->target && e->target == f->source)) {
-				return GRAPH_STATUS_INVALID_GRAPH;
-			};
+		if (find_edge_index(g, e->source, e->target) != i) {
+			return GRAPH_STATUS_INVALID_GRAPH;
 		};
 	};
 
 	return GRAPH_STATUS_OK;
 };
 
-bool graph_is_connected(const graph_t* graph) {
-	if (!graph || graph_validate(graph) != GRAPH_STATUS_OK) {
+bool graph_is_connected(const graph_t* g) {
+	if (!g) {
 		return false;
 	};
 
-	size_t n = graph->vertex_count;
+	const size_t n = g->vertex_count;
 	if (n <= 1) {
 		return true;
 	};
 
-	size_t* parent = arena_alloc(graph->arena, n * sizeof(size_t));
-	if (!parent) {
+	dsu_t dsu;
+	if (!dsu_init(g->arena, &dsu, n)) {
 		return false;
 	};
 
-	for (size_t i = 0; i < n; i++) {
-		parent[i] = i;
-	};
-
 	size_t components = n;
-	for (size_t i = 0; i < graph->edge_count; i++) {
-		size_t a = find_vertex_index(graph, graph->edges[i].source);
-		size_t b = find_vertex_index(graph, graph->edges[i].target);
-		if (dsu_union(parent, a, b)) components--;
+	for (size_t i = 0; i < g->edge_count && components > 1; i++) {
+		if (dsu_union(&dsu, find_vertex_index(g, g->edges[i].source), find_vertex_index(g, g->edges[i].target))) {
+			components--;
+		};
 	};
 
 	return components == 1;
@@ -441,10 +500,35 @@ static graph_status_t make_mst_result(const edge_t* edges, size_t count, double 
 	return GRAPH_STATUS_OK;
 };
 
-static int compare_edge_cost(const void* a, const void* b) {
-	double x = ((const edge_t*)a)->construction_cost;
-	double y = ((const edge_t*)b)->construction_cost;
-	return (x > y) - (x < y);
+typedef struct {
+	double cost;
+	size_t a;
+	size_t b;
+	size_t edge_idx;
+} resolved_edge_t;
+
+static resolved_edge_t* resolve_edges(const graph_t* g, arena_t* arena) {
+	resolved_edge_t* out = arena_alloc(arena, (g->edge_count? g->edge_count : 1) * sizeof(*out));
+	if (!out) {
+		return NULL;
+	};
+
+	for (size_t i = 0; i < g->edge_count; i++) {
+		const edge_t* e = &g->edges[i];
+		out[i] = (resolved_edge_t){
+			.cost = e->construction_cost,
+			.a = find_vertex_index(g, e->source),
+			.b = find_vertex_index(g, e->target),
+			.edge_idx = i
+		};
+	};
+
+	return out;
+};
+
+static int compare_resolved(const void* x, const void* y) {
+	const double a = ((const resolved_edge_t*)x)->cost, b = ((const resolved_edge_t*)y)->cost;
+	return (a > b) - (a < b);
 };
 
 graph_status_t graph_kruskal(const graph_t* graph, mst_result_t** out_result) {
@@ -453,109 +537,130 @@ graph_status_t graph_kruskal(const graph_t* graph, mst_result_t** out_result) {
 	};
 
 	*out_result = NULL;
-	graph_status_t s = graph_validate(graph);
+	const graph_status_t s = graph_validate(graph);
 	if (s != GRAPH_STATUS_OK) {
 		return s;
 	};
 
-	size_t n = graph->vertex_count;
+	const size_t n = graph->vertex_count;
 	if (n <= 1) {
 		return make_mst_result(NULL, 0, 0.0, out_result);
 	};
 
-	edge_t* sorted = arena_alloc(graph->arena, (graph->edge_count? graph->edge_count : 1) * sizeof(edge_t));
-	edge_t* chosen = arena_alloc(graph->arena, n * sizeof(edge_t));
-	size_t* parent = arena_alloc(graph->arena, n * sizeof(size_t));
-	if (!sorted || !chosen || !parent) {
+	resolved_edge_t* sorted = resolve_edges(graph, graph->arena);
+	edge_t* chosen = arena_alloc(graph->arena, (n - 1) * sizeof(edge_t));
+	dsu_t dsu;
+	if (!sorted || !chosen || !dsu_init(graph->arena, &dsu, n)) {
 		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
-	if (graph->edge_count) {
-		memcpy(sorted, graph->edges, graph->edge_count * sizeof(edge_t));
-	};
-
-	qsort(sorted, graph->edge_count, sizeof(edge_t), compare_edge_cost);
-
-	/* Union-find clear */
-	for (size_t i = 0; i < n; i++) {
-		parent[i] = i;
-	};
+	qsort(sorted, graph->edge_count, sizeof(*sorted), compare_resolved);
 
 	size_t count = 0;
 	double total = 0.0;
 	for (size_t i = 0; i < graph->edge_count && count < n - 1; i++) {
-		const size_t a = find_vertex_index(graph, sorted[i].source);
-		const size_t b = find_vertex_index(graph, sorted[i].target);
-		if (dsu_union(parent, a, b)) {
-			chosen[count++] = sorted[i];
-			total += sorted[i].construction_cost;
+		if (dsu_union(&dsu, sorted[i].a, sorted[i].b)) {
+			chosen[count++] = graph->edges[sorted[i].edge_idx];
+			total += sorted[i].cost;
 		};
 	};
 
-	if (count != n - 1) {
-		return GRAPH_STATUS_DISCONNECTED;
-	};
-
-	return make_mst_result(chosen, count, total, out_result);
+	return count == n - 1? make_mst_result(chosen, count, total, out_result) : GRAPH_STATUS_DISCONNECTED;
 };
 
-graph_status_t graph_prim(const graph_t* graph, int source_id, mst_result_t** out_result) {
+typedef struct {
+	double cost;
+	size_t to;
+	size_t edge_idx;
+} prim_node_t;
+
+static enum Ordering prim_compare(const uint8_t* lhs, const uint8_t* rhs) {
+	const double a = ((const prim_node_t*)lhs)->cost;
+	const double b = ((const prim_node_t*)rhs)->cost;
+	return a < b? LT : (a > b? GT : EQ);
+};
+
+graph_status_t graph_prim(const graph_t* graph, vertex_id_t source_id, mst_result_t** out_result) {
 	if (!graph || !out_result) {
 		return GRAPH_STATUS_INVALID_ARGUMENT;
 	};
 
 	*out_result = NULL;
-	graph_status_t s = graph_validate(graph);
+	const graph_status_t s = graph_validate(graph);
 	if (s != GRAPH_STATUS_OK) {
 		return s;
 	};
 
-	size_t n = graph->vertex_count;
+	const size_t n = graph->vertex_count, m = graph->edge_count;
 	if (n <= 1) {
 		return make_mst_result(NULL, 0, 0.0, out_result);
 	};
 
-	edge_t* chosen = arena_alloc(graph->arena, n * sizeof(edge_t));
-	bool* in_tree = arena_calloc(graph->arena, n * sizeof(bool));
-	if (!chosen || !in_tree) {
-		return GRAPH_STATUS_OUT_OF_MEMORY;
-	};
-
-	size_t start_idx = find_vertex_index(graph, source_id);
-	if (start_idx == NOT_FOUND) {
+	const size_t start = find_vertex_index(graph, source_id);
+	if (start == NOT_FOUND) {
 		return GRAPH_STATUS_VERTEX_NOT_FOUND;
 	};
 
-	in_tree[start_idx] = true; // Se inicia la raíz en la zona seleccionada
-
-	size_t count = 0;
-	double total = 0.0;
-	while (count < n - 1) {
-		size_t best = NOT_FOUND, best_new = 0;
-
-		for (size_t i = 0; i < graph->edge_count; i++) {
-			const edge_t* e = &graph->edges[i];
-			size_t a = find_vertex_index(graph, e->source);
-			size_t b = find_vertex_index(graph, e->target);
-			if (in_tree[a] == in_tree[b]) {
-				continue;
-			};
-
-			if (best == NOT_FOUND || e->construction_cost < graph->edges[best].construction_cost) {
-				best = i;
-				best_new = in_tree[a] ? b : a;
-			};
-		};
-
-		if (best == NOT_FOUND) {
-			return GRAPH_STATUS_DISCONNECTED;
-		};
-
-		in_tree[best_new] = true;
-		chosen[count++] = graph->edges[best];
-		total += graph->edges[best].construction_cost;
+	resolved_edge_t* ends = resolve_edges(graph, graph->arena);
+	size_t* offset = arena_calloc(graph->arena, (n + 1) * sizeof(size_t));
+	size_t* cursor = arena_alloc(graph->arena, n * sizeof(size_t));
+	size_t* adj = arena_alloc(graph->arena, (2 * m + 1) * sizeof(size_t));
+	edge_t* chosen = arena_alloc(graph->arena, (n - 1) * sizeof(edge_t));
+	bool* in_tree = arena_calloc(graph->arena, n * sizeof(bool));
+	if (!ends || !offset || !cursor || !adj || !chosen || !in_tree) {
+		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
+	for (size_t i = 0; i < m; i++) {
+		offset[ends[i].a + 1]++;
+		offset[ends[i].b + 1]++;
+	};
+
+	for (size_t v = 0; v < n; v++) {
+		offset[v + 1] += offset[v];
+	};
+
+	memcpy(cursor, offset, n * sizeof(size_t));
+	for (size_t i = 0; i < m; i++) {
+		adj[cursor[ends[i].a]++] = i;
+		adj[cursor[ends[i].b]++] = i;
+	};
+
+	Heap* heap = heap_init(sizeof(prim_node_t), prim_compare, LT);
+	if (!heap) {
+		return GRAPH_STATUS_OUT_OF_MEMORY;
+	};
+
+	size_t count = 0, current = start;
+	double total = 0.0;
+	in_tree[start] = true;
+	while (count < n - 1) {
+		for (size_t k = offset[current]; k < offset[current + 1]; k++) {
+			const resolved_edge_t* e = &ends[adj[k]];
+			const size_t to = e->a == current? e->b : e->a;
+			if (!in_tree[to]) {
+				prim_node_t node = {.cost = e->cost, .to = to, .edge_idx = adj[k]};
+				heap_insert(heap, (uint8_t*)&node);
+			};
+		};
+
+		prim_node_t best;
+		do {
+			if (heap_is_empty(heap)) {
+				heap_deinit(heap);
+				return GRAPH_STATUS_DISCONNECTED;
+			};
+
+			heap_pop(heap, (uint8_t*)&best);
+		} while (in_tree[best.to]);
+
+		in_tree[best.to] = true;
+		chosen[count++] = graph->edges[best.edge_idx];
+		total += best.cost;
+		current = best.to;
+	};
+
+	heap_deinit(heap);
 	return make_mst_result(chosen, count, total, out_result);
 };
 
@@ -639,6 +744,10 @@ static void residual_add_arc(residual_t* r, size_t from, size_t to, double cap) 
  * the front of the work list (Edmonds-Karp); false takes from the back
  * (depth-first, Ford-Fulkerson). Returns the bottleneck, or 0 if no path. */
 static double find_augmenting_path(residual_t* r, size_t s, size_t t, bool bfs, size_t* parent_arc, bool* visited, size_t* list) {
+	if (!r) {
+		return 0;
+	};
+
 	memset(visited, 0, r->node_count * sizeof(bool));
 	size_t lo = 0, hi = 0;
 	list[hi++] = s;
@@ -683,11 +792,6 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 	};
 
 	*out_result = NULL;
-	/* graph_is_connected will call this again */
-	// const graph_status_t st = graph_validate(graph);
-	// if (st != GRAPH_STATUS_OK) {
-	// 	return st;
-	// };
 
 	const size_t n = graph->vertex_count;
 	const size_t m = graph->edge_count;
@@ -696,96 +800,116 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		return GRAPH_STATUS_VERTEX_NOT_FOUND;
 	};
 
-	if (m != n - 1 || !graph_is_connected(graph)) {
-		return GRAPH_STATUS_INVALID_GRAPH;
-	};
-
-	/* Validate demands. */
-	for (size_t i = 0; i < demand_count; i++) {
-		if (!valid_weight(demands[i].demand)) {
-			return GRAPH_STATUS_INVALID_ARGUMENT;
-		};
-
-		if (demands[i].vertex_id == source) {
-			return GRAPH_STATUS_INVALID_ARGUMENT;
-		};
-
-		if (find_vertex_index(graph, demands[i].vertex_id) == NOT_FOUND) {
-			return GRAPH_STATUS_VERTEX_NOT_FOUND;
-		};
-
-		for (size_t j = i + 1; j < demand_count; j++) {
-			if (demands[i].vertex_id == demands[j].vertex_id) {
-				return GRAPH_STATUS_INVALID_ARGUMENT;
-			};
-		};
-	};
-
-	/* Build the residual network. Node n is the artificial sink. */
 	arena_t* arena = arena_init();
 	if (!arena) {
 		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
-	size_t sink = n;
-	residual_t r;
-	if (!residual_init(arena, &r, n + 1, 2 * m + 2 * demand_count + 1)) {
+	flow_result_t* res = NULL;
+	edge_flow_t* edge_flows = NULL;
+	vertex_flow_t* vertex_flows = NULL;
+
+	graph_status_t status = GRAPH_STATUS_OK;
+	if (m != n - 1 || !graph_is_connected(graph)) {
+		free(edge_flows);
+		free(vertex_flows);
+		free(res);
 		arena_deinit(arena);
-		return GRAPH_STATUS_OUT_OF_MEMORY;
+	};
+
+	bool* seen = arena_calloc(arena, n * sizeof(bool));
+	size_t* demand_vertex = arena_alloc(arena, (demand_count? demand_count : 1) * sizeof(size_t));
+	if (!seen || !demand_vertex) {
+		free(edge_flows);
+		free(vertex_flows);
+		free(res);
+		arena_deinit(arena);
+	};
+
+	for (size_t i = 0; i < demand_count; i++) {
+		if (!valid_weight(demands[i].demand) || demands[i].vertex_id == source) {
+			free(edge_flows);
+			free(vertex_flows);
+			free(res);
+			arena_deinit(arena);
+		};
+
+		const size_t v = find_vertex_index(graph, demands[i].vertex_id);
+		if (v == NOT_FOUND) {
+			free(edge_flows);
+			free(vertex_flows);
+			free(res);
+			arena_deinit(arena);
+		};
+
+		if (seen[v]) {
+			free(edge_flows);
+			free(vertex_flows);
+			free(res);
+			arena_deinit(arena);
+		};
+
+		seen[v] = true;
+		demand_vertex[i] = v;
+	};
+
+	/* Residual network: node n is the artificial sink. */
+	const size_t sink = n;
+	residual_t r = {0};
+	resolved_edge_t* ends = resolve_edges(graph, arena);
+	if (!ends || !residual_init(arena, &r, n + 1, 2 * m + 2 * demand_count + 1)) {
+		free(edge_flows);
+		free(vertex_flows);
+		free(res);
+		arena_deinit(arena);
 	};
 
 	for (size_t k = 0; k < m; k++) {
-		const size_t a = find_vertex_index(graph, graph->edges[k].source);
-		const size_t b = find_vertex_index(graph, graph->edges[k].target);
-		residual_add_arc(&r, a, b, graph->edges[k].capacity);
-		residual_add_arc(&r, b, a, graph->edges[k].capacity);
+		residual_add_arc(&r, ends[k].a, ends[k].b, graph->edges[k].capacity);
+		residual_add_arc(&r, ends[k].b, ends[k].a, graph->edges[k].capacity);
 	};
 
-	size_t sink_arc_base = r.arc_count;
+	const size_t sink_arc_base = r.arc_count;
 	for (size_t i = 0; i < demand_count; i++) {
-		const size_t v = find_vertex_index(graph, demands[i].vertex_id);
-		residual_add_arc(&r, v, sink, demands[i].demand);
-		residual_add_arc(&r, sink, v, 0.0);
+		residual_add_arc(&r, demand_vertex[i], sink, demands[i].demand);
+		residual_add_arc(&r, sink, demand_vertex[i], 0.0);
 	};
 
 	size_t* parent_arc = arena_alloc(arena, (n + 1) * sizeof(size_t));
 	bool* visited = arena_alloc(arena, (n + 1) * sizeof(bool));
 	size_t* list = arena_alloc(arena, (n + 1) * sizeof(size_t));
-
-	/* These DON'T live in the arena because they're returned out of this scope */
-	flow_result_t* res = calloc(1, sizeof(flow_result_t));
-	const size_t edge_alloc = m ? m : 1, vertex_alloc = demand_count ? demand_count : 1;
-	edge_flow_t* edge_flows = malloc(edge_alloc * sizeof(edge_flow_t));
-	vertex_flow_t* vertex_flows = malloc(vertex_alloc * sizeof(vertex_flow_t));
-
-	if (!parent_arc || !visited || !list || !res || !edge_flows || !vertex_flows) {
+	if (!parent_arc || !visited || !list) {
 		free(edge_flows);
 		free(vertex_flows);
 		free(res);
-
 		arena_deinit(arena);
-		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
 	while (find_augmenting_path(&r, src, sink, bfs, parent_arc, visited, list) > 0.0) {
 		/* keep augmenting */
 	};
 
+	res = calloc(1, sizeof(*res));
+	edge_flows = malloc((m? m : 1) * sizeof(edge_flow_t));
+	vertex_flows = malloc((demand_count? demand_count : 1) * sizeof(vertex_flow_t));
+	if (!res || !edge_flows || !vertex_flows) {
+		free(edge_flows);
+		free(vertex_flows);
+		free(res);
+		arena_deinit(arena);
+	};
+
 	for (size_t k = 0; k < m; k++) {
 		const edge_t* e = &graph->edges[k];
 		double flow = fabs(e->capacity - r.cap[2 * k]);
-		if (flow > e->capacity) {
-			flow = e->capacity;
-		};
+		if (flow > e->capacity) flow = e->capacity;
 
-		edge_flow_t* ef = &edge_flows[k];
-		ef->source = e->source;
-		ef->target = e->target;
-		ef->capacity = e->capacity;
-		ef->flow = flow;
-		ef->residual_capacity = e->capacity - flow;
-		ef->utilization = e->capacity > 0.0 ? flow / e->capacity : 0.0;
-		ef->saturated = ef->residual_capacity <= FLOW_EPS;
+		edge_flows[k] = (edge_flow_t){
+			.source = e->source, .target = e->target, .capacity = e->capacity, .flow = flow,
+			.residual_capacity = e->capacity - flow,
+			.utilization = e->capacity > 0.0? flow / e->capacity : 0.0,
+			.saturated = (e->capacity - flow) <= FLOW_EPS,
+		};
 	};
 
 	double total_flow = 0.0, total_demand = 0.0;
@@ -795,25 +919,15 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 			delivered = 0.0;
 		};
 
-		vertex_flow_t* vf = &vertex_flows[i];
-		vf->vertex_id = demands[i].vertex_id;
-		vf->demand = demands[i].demand;
-		vf->delivered = delivered;
-		vf->unmet = demands[i].demand - delivered;
+		vertex_flows[i] = (vertex_flow_t){demands[i].vertex_id, demands[i].demand, delivered, demands[i].demand - delivered};
 		total_flow += delivered;
 		total_demand += demands[i].demand;
 	};
 
-	res->total_flow = total_flow;
-	res->total_demand = total_demand;
-	res->edge_flows = edge_flows;
-	res->edge_flow_count = m;
-	res->vertex_flows = vertex_flows;
-	res->vertex_flow_count = demand_count;
+	*res = (flow_result_t){total_flow, total_demand, edge_flows, m, vertex_flows, demand_count};
 	*out_result = res;
-
 	arena_deinit(arena);
-	return GRAPH_STATUS_OK;
+	return status;
 };
 
 graph_status_t graph_ford_fulkerson(const graph_t* graph, vertex_id_t source, const vertex_demand_t* demand_vertices, size_t demand_count, flow_result_t** out_result) {

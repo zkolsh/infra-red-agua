@@ -1,5 +1,6 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c11 -Iinclude -fPIC -flto
+# sería -std=c23 pero beni tiene un gcc del año 1999 más o menos
+CFLAGS := -Wall -Wextra -std=c2x -Iinclude -fPIC -flto
 LDFLAGS := -lm -flto
 
 SRC_DIR := src

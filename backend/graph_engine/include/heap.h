@@ -13,7 +13,7 @@
 #define HEAP_MINIMUM_CAPACITY 64
 #endif //HEAP_MINIMUM_CAPACITY
 
-enum Ordering: uint8_t {
+enum Ordering: int8_t {
 	LT = -1,
 	EQ = 0,
 	GT = 1
