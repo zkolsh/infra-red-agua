@@ -1,11 +1,9 @@
-#define USE_GENERIC_ARENA
-
 #if !defined(__linux) || defined(USE_GENERIC_ARENA)
-// #if defined(DEBUG)
-// #warning compiling generic arena implementation
-// #else
-// #error generic arena not allowed in release mode
-// #endif
+#if defined(DEBUG)
+#warning compiling generic arena implementation
+#else
+#error generic arena not allowed in release mode
+#endif
 
 #include "arena.h"
 
