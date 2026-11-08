@@ -1,6 +1,8 @@
 #if !defined(GRAPH_ENGINE_H)
 #define GRAPH_ENGINE_H
 
+#include "arena.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -39,6 +41,8 @@ typedef struct {
 	edge_t* edges;
 	size_t edge_count;
 	size_t edge_capacity;
+
+	arena_t* arena;
 } graph_t;
 
 typedef struct {

@@ -1,6 +1,6 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c11 -Iinclude -fPIC
-LDFLAGS := -lm
+CFLAGS := -Wall -Wextra -std=c11 -Iinclude -fPIC -flto
+LDFLAGS := -lm -flto
 
 SRC_DIR := src
 BUILD_DIR := build
@@ -14,11 +14,11 @@ DEPS := $(OBJS:.o=.d)
 
 all: debug
 
-debug: CFLAGS += -ggdb -fsanitize=address,undefined
+debug: CFLAGS += -ggdb -fsanitize=address,undefined -DDEBUG
 debug: LDFLAGS += -fsanitize=address,undefined
 debug: $(LIB)
 
-release: CFLAGS += -O2
+release: CFLAGS += -O2 -Werror -DNDEBUG
 release: $(LIB)
 
 $(LIB): $(OBJS)
