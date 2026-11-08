@@ -31,6 +31,7 @@ class Graph(BaseModel):
 
 class NodeLayout(BaseModel):
     id: int
+    zcta:int
     lat: float
     lon: float
     zone_type: str
@@ -72,6 +73,9 @@ class ScenarioResult(BaseModel):
     label: str | None
     demand_satisfied: bool
     edges: list[EdgeFlow]
+    total_flow: float
+    total_demand: float
+    unmet_demand: float
 
 
 class ScenariosResponse(BaseModel):
@@ -121,3 +125,24 @@ class ValidateResponse(BaseModel):
     valid: bool
     connected: bool
     error: str | None
+
+class BaseNode(NodeLayout):
+    demand: float  # base scenario (0 % growth), predicted by the ML model; 0 for the source
+ 
+ 
+class BaseEdge(EdgeOut):
+    in_mst: bool
+ 
+ 
+class GrowthDemands(BaseModel):
+    growth_pct: float
+    demands: Demands  # ready to be sent as a Scenario of POST /scenarios
+ 
+ 
+class BaseNetworkResponse(BaseModel):
+    source_id: VertexId
+    mst_total_cost: float
+    nodes: list[BaseNode]
+    edges: list[BaseEdge]  # every candidate pipe; capacities are the fixed design of the network
+    scenarios: list[GrowthDemands]
+ 

@@ -1,8 +1,8 @@
 import pandas as pd
 from fastapi import APIRouter, Query
 
-from app.schemas.v1.network import MSTRequest, MSTResponse, FlowRequest, FlowResponse, ScenariosRequest, ScenariosResponse, ValidateResponse, Graph, DemandsResponse, NodesResponse
-from app.services import graph_service, zone_service
+from app.schemas.v1.network import MSTRequest, MSTResponse, FlowRequest, FlowResponse, ScenariosRequest, ScenariosResponse, ValidateResponse, Graph, DemandsResponse, NodesResponse, BaseNetworkResponse
+from app.services import graph_service, network_service ,zone_service
 
 router = APIRouter(prefix="/network", tags=["network"])
 
@@ -10,6 +10,9 @@ router = APIRouter(prefix="/network", tags=["network"])
 @router.get("/nodes", response_model=NodesResponse)
 def nodes(): return {"nodes": zone_service.layout()}
 
+@router.get("/base", response_model=BaseNetworkResponse)
+def base(source_id: int | None = Query(None, ge=0)
+         ): return network_service.build_base(source_id)
 
 @router.get("/demands", response_model=DemandsResponse)
 def demands(growth_pct: float = Query(0.0, ge=-100)

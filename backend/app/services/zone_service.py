@@ -6,7 +6,7 @@ _NODOS = pd.read_csv(RUTA_NODOS)
 
 def layout() -> list[dict]:
     return [
-        {"id": int(r.nodo_id), "lat": float(r.latitud), "lon": float(r.longitud),
+        {"id": int(r.nodo_id), "zcta": int(r.zcta), "lat": float(r.latitud), "lon": float(r.longitud),
          "zone_type": str(r.tipo_zona), "population": float(r.poblacion)}
         for r in _NODOS.itertuples()
     ]
