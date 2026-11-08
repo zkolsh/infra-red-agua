@@ -6,8 +6,9 @@ import Html.Attributes exposing (style)
 import Html.Events exposing (onClick)
 import Svg exposing (Svg, circle, g, line, svg)
 import Svg.Attributes as SvgAttr
-import Tipos exposing (Arista, Base, FlujoArista, Nodo, Resultado)
-
+import Svg.Events as SvgEvents
+import Tipos exposing (Arista, Base, FlujoArista, Nodo, Resultado, Position)
+import Json.Decode as Decode
 
 tarjeta : List (Html.Attribute msg)
 tarjeta =
@@ -17,8 +18,8 @@ tarjeta =
     ]
 
 
-viewMapa : (Int -> msg) -> Maybe Base -> Maybe Resultado -> Html msg
-viewMapa onElegirFuente maybeBase actual =
+viewMapa : (Int -> msg) -> (Maybe Arista -> msg) -> (Position -> msg) -> (Position -> msg) -> msg -> Float -> Float -> Float -> Maybe Base -> Maybe Resultado -> Html msg
+viewMapa onElegirFuente onSelectEdge onDragStart onDragMove onDragEnd zoom panX panY maybeBase actual =
     case maybeBase of
         Nothing ->
             div (tarjeta ++ [ style "color" "#94a3b8", style "text-align" "center" ])
@@ -33,34 +34,65 @@ viewMapa onElegirFuente maybeBase actual =
                     Dict.fromList (List.map (\n -> ( n.id, n )) base.nodos)
 
                 flujos =
-                    actual
-                        |> Maybe.map .aristas
-                        |> Maybe.withDefault []
+                    actual |> Maybe.map .aristas |> Maybe.withDefault []
 
                 posibles =
                     List.filter (\a -> not a.enMst) base.aristas
+
+                w =
+                    900.0 / zoom
+
+                h =
+                    620.0 / zoom
+
+                x =
+                    ((900.0 - w) / 2.0) + panX
+
+                y =
+                    ((620.0 - h) / 2.0) + panY
+
+                viewBoxStr =
+                    String.fromFloat x ++ " " ++ String.fromFloat y ++ " " ++ String.fromFloat w ++ " " ++ String.fromFloat h
             in
             div (tarjeta ++ [ style "display" "flex", style "flex-direction" "column", style "align-items" "center" ])
                 [ svg
-                    [ SvgAttr.viewBox "0 0 900 620"
+                    [ SvgAttr.viewBox viewBoxStr
                     , SvgAttr.width "100%"
                     , SvgAttr.height "620"
                     , style "background" "#0f172a"
                     , style "border-radius" "6px"
+                    , style "cursor" "grab"
+                    -- Captura de Arrastre de Mouse
+                    , SvgEvents.on "mousedown" (decodePosition onDragStart)
+                    , SvgEvents.on "mousemove" (decodePosition onDragMove)
+                    , SvgEvents.onMouseUp onDragEnd
+                    , SvgEvents.onMouseOut onDragEnd
                     ]
-                    [ g [] (List.filterMap (viewPosible porId posicion) posibles)
-                    , g [] (List.filterMap (viewFlujo porId posicion) flujos)
+                    [ g [] (List.filterMap (viewPosible onSelectEdge porId posicion) posibles)
+                    , g [] (List.filterMap (viewFlujo onSelectEdge porId posicion) flujos)
                     , g [] (List.map (viewNodo onElegirFuente posicion base.fuente) base.nodos)
                     ]
                 , p [ style "color" "#64748b", style "font-size" "0.85rem", style "margin" "10px 0 0 0" ]
                     [ text "Gris punteado: tendido posible | Azul: red de menor costo | Naranja: uso ≥ 80 % | Rojo: saturada | Amarillo: fuente" ]
                 ]
 
+{-| Convierte una `FlujoArista` del resultado en un tipo `Arista` para el inspector de Main.
+-}
+flujoToArista : FlujoArista -> Arista
+flujoToArista f =
+    { origen = f.origen
+    , destino = f.destino
+    , costo = 0.0
+    , capacidad = f.capacidad
+    , enMst = True
+    , flujo = f.flujo
+    }
+
 
 {-| Tendido posible que la red de menor costo no eligió.
 -}
-viewPosible : Dict Int Nodo -> (Nodo -> ( Float, Float )) -> Arista -> Maybe (Svg msg)
-viewPosible porId posicion a =
+viewPosible : (Maybe Arista -> msg) -> Dict Int Nodo -> (Nodo -> ( Float, Float )) -> Arista -> Maybe (Svg msg)
+viewPosible onSelectEdge porId posicion a =
     Maybe.map2
         (\o d ->
             let
@@ -76,8 +108,11 @@ viewPosible porId posicion a =
                 , SvgAttr.x2 (String.fromFloat x2)
                 , SvgAttr.y2 (String.fromFloat y2)
                 , SvgAttr.stroke "#334155"
-                , SvgAttr.strokeWidth "1"
+                , SvgAttr.strokeWidth "1.5"
                 , SvgAttr.strokeDasharray "4 4"
+                , SvgAttr.cursor "pointer"
+                , SvgEvents.onMouseOver (onSelectEdge (Just a))
+                , SvgEvents.onClick (onSelectEdge (Just a))
                 ]
                 []
         )
@@ -87,8 +122,8 @@ viewPosible porId posicion a =
 
 {-| Arista de la red de menor costo con su flujo en el escenario elegido.
 -}
-viewFlujo : Dict Int Nodo -> (Nodo -> ( Float, Float )) -> FlujoArista -> Maybe (Svg msg)
-viewFlujo porId posicion f =
+viewFlujo : (Maybe Arista -> msg) -> Dict Int Nodo -> (Nodo -> ( Float, Float )) -> FlujoArista -> Maybe (Svg msg)
+viewFlujo onSelectEdge porId posicion f =
     Maybe.map2
         (\o d ->
             let
@@ -110,6 +145,9 @@ viewFlujo porId posicion f =
 
                 detalle =
                     millones f.flujo ++ " / " ++ millones f.capacidad ++ " gal/mes (" ++ String.fromInt (round (f.utilizacion * 100)) ++ " %)"
+
+                aristaEquiv =
+                    flujoToArista f
             in
             g []
                 [ line
@@ -120,6 +158,9 @@ viewFlujo porId posicion f =
                     , SvgAttr.stroke color
                     , SvgAttr.strokeWidth (String.fromFloat (2 + 4 * clamp 0 1 f.utilizacion))
                     , SvgAttr.strokeLinecap "round"
+                    , SvgAttr.cursor "pointer"
+                    , SvgEvents.onMouseOver (onSelectEdge (Just aristaEquiv))
+                    , SvgEvents.onClick (onSelectEdge (Just aristaEquiv))
                     ]
                     [ Svg.title [] [ Svg.text (String.fromInt o.zcta ++ " – " ++ String.fromInt d.zcta ++ ": " ++ detalle) ] ]
                 , if f.saturada then
@@ -257,3 +298,10 @@ proyector nodos =
         ( margen + sobranteX / 2 + (n.lon - minLon) * factorLon * escala
         , alto - margen - sobranteY / 2 - (n.lat - minLat) * escala
         )
+
+decodePosition : (Position -> msg) -> Decode.Decoder msg
+decodePosition tag =
+    Decode.map2 Position
+        (Decode.field "pageX" Decode.float)
+        (Decode.field "pageY" Decode.float)
+        |> Decode.map tag

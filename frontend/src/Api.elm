@@ -132,12 +132,17 @@ decodeNodo =
 
 decodeArista : D.Decoder Arista
 decodeArista =
-    D.map5 Arista
+    D.map6 Arista
         (D.field "source" D.int)
         (D.field "target" D.int)
         (D.field "construction_cost" D.float)
         (D.field "capacity" D.float)
         (D.field "in_mst" D.bool)
+        (D.oneOf
+            [ D.field "flow" D.float
+            , D.succeed 0.0
+            ]
+        )
 
 
 decodeEscenario : D.Decoder Escenario

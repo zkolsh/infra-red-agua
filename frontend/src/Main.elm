@@ -7,7 +7,10 @@ import Html.Attributes exposing (style)
 import Html.Events exposing (onClick)
 import Http
 import Mapa exposing (millones, viewMapa)
-import Tipos exposing (Base, Resultado)
+import Svg exposing (Svg)
+import Svg.Attributes
+import Svg.Events
+import Tipos exposing (Arista, Base, Nodo, Resultado, Position)
 
 
 -- -----------------------------------------------------------------------------
@@ -23,7 +26,6 @@ main =
         , subscriptions = \_ -> Sub.none
         , view = view
         }
-
 
 
 -- -----------------------------------------------------------------------------
@@ -42,15 +44,29 @@ type alias Model =
     , base : Maybe Base
     , resultados : List Resultado
     , seleccionado : Float
+    , zoom : Float
+    , panX : Float
+    , panY : Float
+    , isDragging : Bool
+    , dragStart : Position
+    , selectedEdge : Maybe Arista
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { estado = Cargando, base = Nothing, resultados = [], seleccionado = 0 }
+    ( {estado = Cargando
+      , base = Nothing
+      , resultados = []
+      , seleccionado = 0
+      , zoom = 1.0
+      , panX = 0.0
+      , panY = 0.0
+      , isDragging = False
+      , dragStart = { x = 0, y = 0 }
+      , selectedEdge = Nothing}
     , pedirBase BaseObtenida Nothing
     )
-
 
 
 -- -----------------------------------------------------------------------------
@@ -64,13 +80,18 @@ type Msg
     | ElegirCrecimiento Float
     | ElegirFuente Int
     | Reintentar
-
+    | ZoomIn
+    | ZoomOut
+    | ResetZoom
+    | DragStart Position
+    | DragMove Position
+    | DragEnd
+    | SelectEdge (Maybe Arista)
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         BaseObtenida (Ok base) ->
-            -- Con la red base se piden de una sola vez todos los escenarios de crecimiento
             ( { model | base = Just base, resultados = [], estado = Cargando }
             , pedirEscenarios ResultadosObtenidos base
             )
@@ -98,7 +119,6 @@ update msg model =
             ( { model | estado = Fallo (errorTexto e) }, Cmd.none )
 
         ElegirCrecimiento pct ->
-            -- Los resultados ya están calculados: cambiar de escenario no llama a la API
             ( { model | seleccionado = pct }, Cmd.none )
 
         ElegirFuente id ->
@@ -106,8 +126,57 @@ update msg model =
 
         Reintentar ->
             ( { model | estado = Cargando }, pedirBase BaseObtenida (Maybe.map .fuente model.base) )
+        
+        ZoomIn ->
+            ( { model | zoom = Basics.min 3.0 (model.zoom + 0.25) }, Cmd.none )
 
+        ZoomOut ->
+            ( { model | zoom = Basics.max 0.5 (model.zoom - 0.25) }, Cmd.none )
 
+        ResetZoom ->
+            ( { model | zoom = 1.0, panX = 0.0, panY = 0.0 }, Cmd.none )
+
+        DragStart pos ->
+            ( { model | isDragging = True, dragStart = pos }, Cmd.none )
+
+        DragMove pos ->
+            if model.isDragging then
+                let
+                    dx =
+                        (pos.x - model.dragStart.x) / model.zoom
+
+                    dy =
+                        (pos.y - model.dragStart.y) / model.zoom
+                in
+                ( { model
+                    | panX = model.panX - dx
+                    , panY = model.panY - dy
+                    , dragStart = pos
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( model, Cmd.none )
+
+        DragEnd ->
+            ( { model | isDragging = False }, Cmd.none )
+
+        SelectEdge maybeEdge ->
+            ( { model | selectedEdge = maybeEdge }, Cmd.none )
+
+getZcta : Maybe Base -> Int -> String
+getZcta maybeBase id =
+    case maybeBase of
+        Just base ->
+            base.nodos
+                |> List.filter (\n -> n.id == id)
+                |> List.head
+                |> Maybe.map (\n -> String.fromInt n.zcta)
+                |> Maybe.withDefault (String.fromInt id)
+
+        Nothing ->
+            String.fromInt id
 
 -- -----------------------------------------------------------------------------
 -- VIEW
@@ -133,7 +202,7 @@ view model =
         [ viewEncabezado model
         , viewSelector model
         , viewMetricas actual
-        , viewMapa ElegirFuente model.base actual
+        , viewMapSection model actual
         ]
 
 
@@ -181,8 +250,6 @@ viewEncabezado model =
         ]
 
 
-{-| Selector de escenario de crecimiento: un botón por cada escenario que mandó la API.
--}
 viewSelector : Model -> Html Msg
 viewSelector model =
     let
@@ -269,3 +336,134 @@ viewMetricas actual =
                 "#10b981"
             )
         ]
+
+
+viewMapSection : Model -> Maybe Resultado -> Html Msg
+viewMapSection model actual =
+    Html.div
+        [ Html.Attributes.style "position" "relative"
+        , Html.Attributes.style "width" "100%"
+        , Html.Attributes.style "border" "1px solid #334155"
+        , Html.Attributes.style "border-radius" "8px"
+        , Html.Attributes.style "overflow" "hidden"
+        , Html.Attributes.style "background-color" "#0f172a"
+        ]
+        [ viewZoomControls model
+        , viewEdgeMetricsOverlay model
+        , viewMapa ElegirFuente SelectEdge DragStart DragMove DragEnd model.zoom model.panX model.panY model.base actual
+        ]
+
+viewZoomControls : Model -> Html Msg
+viewZoomControls model =
+    Html.div
+        [ Html.Attributes.style "position" "absolute"
+        , Html.Attributes.style "top" "16px"
+        , Html.Attributes.style "left" "16px"
+        , Html.Attributes.style "z-index" "10"
+        , Html.Attributes.style "display" "flex"
+        , Html.Attributes.style "flex-direction" "column"
+        , Html.Attributes.style "gap" "6px"
+        ]
+        [ button
+            [ onClick ZoomIn
+            , Html.Attributes.style "padding" "8px 12px"
+            , Html.Attributes.style "background" "#1e293b"
+            , Html.Attributes.style "color" "#f8fafc"
+            , Html.Attributes.style "border" "1px solid #475569"
+            , Html.Attributes.style "border-radius" "6px"
+            , Html.Attributes.style "font-weight" "bold"
+            , Html.Attributes.style "cursor" "pointer"
+            ]
+            [ text "🔍 +" ]
+        , button
+            [ onClick ZoomOut
+            , Html.Attributes.style "padding" "8px 12px"
+            , Html.Attributes.style "background" "#1e293b"
+            , Html.Attributes.style "color" "#f8fafc"
+            , Html.Attributes.style "border" "1px solid #475569"
+            , Html.Attributes.style "border-radius" "6px"
+            , Html.Attributes.style "font-weight" "bold"
+            , Html.Attributes.style "cursor" "pointer"
+            ]
+            [ text "🔍 -" ]
+        , button
+            [ onClick ResetZoom
+            , Html.Attributes.style "padding" "4px 8px"
+            , Html.Attributes.style "background" "#334155"
+            , Html.Attributes.style "color" "#cbd5e1"
+            , Html.Attributes.style "border" "1px solid #475569"
+            , Html.Attributes.style "border-radius" "6px"
+            , Html.Attributes.style "font-size" "11px"
+            , Html.Attributes.style "cursor" "pointer"
+            ]
+            [ text "100%" ]
+        ]
+
+
+viewEdgeMetricsOverlay : Model -> Html Msg
+viewEdgeMetricsOverlay model =
+    case model.selectedEdge of
+        Just edge ->
+            let
+                sat =
+                    if edge.capacidad > 0 then
+                        round ((edge.flujo / edge.capacidad) * 100.0)
+
+                    else
+                        0
+            in
+            Html.div
+                [ Html.Attributes.style "position" "absolute"
+                , Html.Attributes.style "top" "16px"
+                , Html.Attributes.style "right" "16px"
+                , Html.Attributes.style "z-index" "10"
+                , Html.Attributes.style "background" "rgba(30, 41, 59, 0.95)"
+                , Html.Attributes.style "color" "#f8fafc"
+                , Html.Attributes.style "padding" "12px 16px"
+                , Html.Attributes.style "border-radius" "8px"
+                , Html.Attributes.style "box-shadow" "0 4px 12px rgba(0,0,0,0.4)"
+                , Html.Attributes.style "border" "1px solid #475569"
+                , Html.Attributes.style "display" "flex"
+                , Html.Attributes.style "flex-direction" "column"
+                , Html.Attributes.style "gap" "4px"
+                , Html.Attributes.style "font-size" "13px"
+                , Html.Attributes.style "min-width" "210px"
+                ]
+                [ Html.div
+                    [ Html.Attributes.style "font-weight" "bold"
+                    , Html.Attributes.style "margin-bottom" "4px"
+                    , Html.Attributes.style "border-bottom" "1px solid #334155"
+                    , Html.Attributes.style "padding-bottom" "4px"
+                    ]
+                    [ text ("Tubería: C.P. " ++ getZcta model.base edge.origen ++ " ➔ C.P. " ++ getZcta model.base edge.destino) ]
+                , Html.div [ Html.Attributes.style "color" "#38bdf8" ]
+                    [ text ("1. Caudal ocupado: " ++ String.fromFloat edge.flujo ++ " L/s") ]
+                , Html.div [ Html.Attributes.style "color" "#94a3b8" ]
+                    [ text ("2. Capacidad máxima: " ++ String.fromFloat edge.capacidad ++ " L/s") ]
+                , Html.div
+                    [ Html.Attributes.style "color"
+                        (if sat > 80 then
+                            "#ef4444"
+
+                         else
+                            "#10b981"
+                        )
+                    , Html.Attributes.style "font-weight" "bold"
+                    ]
+                    [ text ("3. Saturación: " ++ String.fromInt sat ++ "%") ]
+                ]
+
+        Nothing ->
+            Html.div
+                [ Html.Attributes.style "position" "absolute"
+                , Html.Attributes.style "top" "16px"
+                , Html.Attributes.style "right" "16px"
+                , Html.Attributes.style "z-index" "10"
+                , Html.Attributes.style "background" "rgba(30, 41, 59, 0.85)"
+                , Html.Attributes.style "padding" "8px 12px"
+                , Html.Attributes.style "border-radius" "6px"
+                , Html.Attributes.style "font-size" "12px"
+                , Html.Attributes.style "color" "#94a3b8"
+                , Html.Attributes.style "border" "1px solid #334155"
+                ]
+                [ text "Pasá el mouse o hacé clic en una arista para inspeccionarla." ]

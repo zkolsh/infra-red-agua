@@ -1,4 +1,4 @@
-module Tipos exposing (Arista, Base, Escenario, FlujoArista, Nodo, Resultado)
+module Tipos exposing (Arista, Base, Escenario, FlujoArista, Nodo, Resultado, Position)
  
 {-| Tipos compartidos. Los nombres de los campos siguen la respuesta de la API
 (`GET /network/base` y `POST /network/scenarios`).
@@ -25,6 +25,7 @@ type alias Arista =
     , costo : Float
     , capacidad : Float
     , enMst : Bool
+    , flujo : Float
     }
  
  
@@ -64,4 +65,9 @@ type alias Resultado =
     , faltante : Float
     , satisfecha : Bool
     , aristas : List FlujoArista
+    }
+
+type alias Position =
+    { x : Float
+    , y : Float
     }
