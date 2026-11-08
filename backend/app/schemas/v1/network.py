@@ -5,16 +5,16 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 VertexId = Annotated[int, Field(ge=0, le=2**32 - 1)]  # vertex_id_t is a uint32
-GrowthPct = Annotated[float, Field(gt=-100)]
 MSTAlgorithm = Literal["kruskal", "prim"]
 FlowAlgorithm = Literal["edmonds_karp", "ford_fulkerson"]
+
+Demands = dict[VertexId, Annotated[float, Field(ge=0)]]
 
 
 class Node(BaseModel):
     id: VertexId
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    demand: float = Field(0.0, ge=0)  # FIXME:  ML projection missing
 
 
 class Edge(BaseModel):
@@ -29,6 +29,22 @@ class Graph(BaseModel):
     edges: list[Edge] = []
 
 
+class NodeLayout(BaseModel):
+    id: int
+    lat: float
+    lon: float
+    zone_type: str
+    population: float
+
+
+class NodesResponse(BaseModel):
+    nodes: list[NodeLayout]
+
+
+class DemandsResponse(BaseModel):
+    demands: Demands
+
+
 class MSTRequest(Graph):
     algorithm: MSTAlgorithm = "kruskal"
 
@@ -40,11 +56,27 @@ class _FlowParams(BaseModel):
 
 
 class FlowRequest(Graph, _FlowParams):
-    growth_pct: GrowthPct = 0.0  # demand growth scenario, e.g. 30 for +30%
+    demands: Demands
+
+
+class Scenario(BaseModel):
+    label: str | None = None
+    demands: Demands
 
 
 class ScenariosRequest(Graph, _FlowParams):
-    growth_pcts: list[GrowthPct] = Field(min_length=1, max_length=20)
+    scenarios: list[Scenario] = Field(min_length=1, max_length=20)
+
+
+class ScenarioResult(BaseModel):
+    label: str | None
+    demand_satisfied: bool
+    edges: list[EdgeFlow]
+
+
+class ScenariosResponse(BaseModel):
+    mst: MSTResponse
+    scenarios: list[ScenarioResult]
 
 
 class EdgeOut(BaseModel):
@@ -77,18 +109,12 @@ class VertexFlow(BaseModel):
 
 
 class FlowResponse(BaseModel):
-    growth_pct: float
     total_flow: float
     total_demand: float
     unmet_demand: float
     demand_satisfied: bool
     edges: list[EdgeFlow]  # MST edges only
     vertices: list[VertexFlow]
-
-
-class ScenariosResponse(BaseModel):
-    mst: MSTResponse
-    scenarios: list[FlowResponse]
 
 
 class ValidateResponse(BaseModel):

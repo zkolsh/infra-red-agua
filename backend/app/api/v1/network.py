@@ -1,20 +1,19 @@
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from app.schemas.v1.network import MSTRequest, MSTResponse, FlowRequest, FlowResponse, ScenariosRequest, ScenariosResponse, ValidateResponse, Graph
-from app.services import graph_service
-from app.ml.predict import predecir_demanda_escenario, RUTA_NODOS
+from app.schemas.v1.network import MSTRequest, MSTResponse, FlowRequest, FlowResponse, ScenariosRequest, ScenariosResponse, ValidateResponse, Graph, DemandsResponse, NodesResponse
+from app.services import graph_service, zone_service
 
 router = APIRouter(prefix="/network", tags=["network"])
 
-_nodos_df = pd.read_csv(RUTA_NODOS)
+
+@router.get("/nodes", response_model=NodesResponse)
+def nodes(): return {"nodes": zone_service.layout()}
 
 
-@router.get("/demands")
-def demands(growth_pct: float = 0.0):
-    """Devuelve la demanda predicha por ML para cada nodo según el % de crecimiento."""
-    serie = predecir_demanda_escenario(_nodos_df, X=growth_pct / 100.0)
-    return {"demands": {int(k): round(float(v), 2) for k, v in serie.items()}}
+@router.get("/demands", response_model=DemandsResponse)
+def demands(growth_pct: float = Query(0.0, ge=-100)
+            ): return {"demands": zone_service.project_demands(growth_pct)}
 
 
 @router.post("/mst", response_model=MSTResponse)

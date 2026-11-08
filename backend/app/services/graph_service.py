@@ -96,16 +96,14 @@ def _mst_result(lib, mst) -> dict:
     }
 
 
-def _flow_result(lib, tree, req, growth_pct: float) -> dict:
-    factor = 1.0 + growth_pct / 100.0
-    wanted = [(n.id, n.demand * factor) for n in req.nodes if n.demand > 0]
+def _flow_result(lib, tree, req, demands: dict[int, float]) -> dict:
+    wanted = [(vid, d) for vid, d in demands.items() if d > 0]
     demands = (ge.VertexDemand * len(wanted))(*(ge.VertexDemand(i, d)
                                                 for i, d in wanted))
     flow_fn = {"edmonds_karp": lib.graph_edmonds_karp,
                "ford_fulkerson": lib.graph_ford_fulkerson}[req.flow_algorithm]
     with _produced(flow_fn, lib.flow_deinit, ge.FlowResult, tree, req.source_id, demands, len(demands)) as f:
         return {
-            "growth_pct": growth_pct,
             "total_flow": lib.flow_get_total(f),
             "total_demand": lib.flow_get_total_demand(f),
             "unmet_demand": lib.flow_get_unmet_demand(f),
@@ -140,17 +138,15 @@ def compute_mst(req) -> dict:
 
 
 def compute_flow(req) -> dict:
-    """Max flow from the source over the MST at one growth scenario."""
     lib = ge.get_library()
     with _graph(req) as g, _mst_and_tree(lib, g, req.mst_algorithm) as (_, tree):
-        return _flow_result(lib, tree, req, req.growth_pct)
+        return _flow_result(lib, tree, req, req.demands)
 
 
 def compute_scenarios(req) -> dict:
-    """Same MST, several growth scenarios: the tree is built once and the flow rerun per scenario."""
     lib = ge.get_library()
     with _graph(req) as g, _mst_and_tree(lib, g, req.mst_algorithm) as (mst, tree):
         return {
             "mst": _mst_result(lib, mst),
-            "scenarios": [_flow_result(lib, tree, req, pct) for pct in req.growth_pcts],
+            "scenarios": [{**_flow_result(lib, tree, req, s.demands), "label": s.label} for s in req.scenarios],
         }
