@@ -1,10 +1,14 @@
-module Tipos exposing (Arista, Base, Escenario, FlujoArista, Nodo, Resultado, Position)
- 
-{-| Tipos compartidos. Los nombres de los campos siguen la respuesta de la API
-(`GET /network/base` y `POST /network/scenarios`).
+module Tipos exposing (Arista, Base, Escenario, FlujoArista, ModoTab(..), Nodo, Position, Resultado)
+
+{-| Tipos compartidos en la aplicación.
 -}
- 
- 
+
+
+type ModoTab
+    = ModoAutomatico
+    | ModoManual
+
+
 type alias Nodo =
     { id : Int
     , zcta : Int
@@ -14,11 +18,8 @@ type alias Nodo =
     , poblacion : Float
     , demanda : Float
     }
- 
- 
-{-| Tendido posible entre dos zonas. `enMst` marca los que forman la red de menor costo.
-La capacidad es fija: sale de la demanda base y no cambia con el escenario.
--}
+
+
 type alias Arista =
     { origen : Int
     , destino : Int
@@ -27,16 +28,14 @@ type alias Arista =
     , enMst : Bool
     , flujo : Float
     }
- 
- 
-{-| Demandas predichas por el modelo de ML para un crecimiento dado (en %).
--}
+
+
 type alias Escenario =
     { crecimiento : Float
     , demandas : List ( Int, Float )
     }
- 
- 
+
+
 type alias Base =
     { fuente : Int
     , costoMst : Float
@@ -44,10 +43,8 @@ type alias Base =
     , aristas : List Arista
     , escenarios : List Escenario
     }
- 
- 
-{-| Flujo sobre una arista de la red de menor costo en un escenario.
--}
+
+
 type alias FlujoArista =
     { origen : Int
     , destino : Int
@@ -56,8 +53,8 @@ type alias FlujoArista =
     , utilizacion : Float
     , saturada : Bool
     }
- 
- 
+
+
 type alias Resultado =
     { crecimiento : Float
     , demandaTotal : Float
@@ -66,6 +63,7 @@ type alias Resultado =
     , satisfecha : Bool
     , aristas : List FlujoArista
     }
+
 
 type alias Position =
     { x : Float

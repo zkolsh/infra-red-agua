@@ -1,14 +1,15 @@
-module Mapa exposing (millones, viewMapa)
+module Mapa exposing (decodePosition, millones, proyector, viewMapa, viewNodo)
 
 import Dict exposing (Dict)
 import Html exposing (Html, div, p, text)
 import Html.Attributes exposing (style)
 import Html.Events exposing (onClick)
+import Json.Decode as Decode
 import Svg exposing (Svg, circle, g, line, svg)
 import Svg.Attributes as SvgAttr
 import Svg.Events as SvgEvents
-import Tipos exposing (Arista, Base, FlujoArista, Nodo, Resultado, Position)
-import Json.Decode as Decode
+import Tipos exposing (Arista, Base, FlujoArista, Nodo, Position, Resultado)
+
 
 tarjeta : List (Html.Attribute msg)
 tarjeta =
@@ -18,8 +19,8 @@ tarjeta =
     ]
 
 
-viewMapa : (Int -> msg) -> (Maybe Arista -> msg) -> (Position -> msg) -> (Position -> msg) -> msg -> Float -> Float -> Float -> Maybe Base -> Maybe Resultado -> Html msg
-viewMapa onElegirFuente onSelectEdge onDragStart onDragMove onDragEnd zoom panX panY maybeBase actual =
+viewMapa : (Int -> msg) -> (Maybe Arista -> msg) -> (Maybe Nodo -> msg) -> (Position -> msg) -> (Position -> msg) -> msg -> Float -> Float -> Float -> Maybe Base -> Maybe Resultado -> Html msg
+viewMapa onElegirFuente onSelectEdge onSelectNode onDragStart onDragMove onDragEnd zoom panX panY maybeBase actual =
     case maybeBase of
         Nothing ->
             div (tarjeta ++ [ style "color" "#94a3b8", style "text-align" "center" ])
@@ -53,6 +54,9 @@ viewMapa onElegirFuente onSelectEdge onDragStart onDragMove onDragEnd zoom panX 
 
                 viewBoxStr =
                     String.fromFloat x ++ " " ++ String.fromFloat y ++ " " ++ String.fromFloat w ++ " " ++ String.fromFloat h
+
+                pct =
+                    actual |> Maybe.map .crecimiento |> Maybe.withDefault 0.0
             in
             div (tarjeta ++ [ style "display" "flex", style "flex-direction" "column", style "align-items" "center" ])
                 [ svg
@@ -62,7 +66,6 @@ viewMapa onElegirFuente onSelectEdge onDragStart onDragMove onDragEnd zoom panX 
                     , style "background" "#0f172a"
                     , style "border-radius" "6px"
                     , style "cursor" "grab"
-                    -- Captura de Arrastre de Mouse
                     , SvgEvents.on "mousedown" (decodePosition onDragStart)
                     , SvgEvents.on "mousemove" (decodePosition onDragMove)
                     , SvgEvents.onMouseUp onDragEnd
@@ -70,14 +73,13 @@ viewMapa onElegirFuente onSelectEdge onDragStart onDragMove onDragEnd zoom panX 
                     ]
                     [ g [] (List.filterMap (viewPosible onSelectEdge porId posicion) posibles)
                     , g [] (List.filterMap (viewFlujo onSelectEdge porId posicion) flujos)
-                    , g [] (List.map (viewNodo onElegirFuente posicion base.fuente) base.nodos)
+                    , g [] (List.map (viewNodo onElegirFuente onSelectNode posicion base.fuente pct) base.nodos)
                     ]
                 , p [ style "color" "#64748b", style "font-size" "0.85rem", style "margin" "10px 0 0 0" ]
                     [ text "Gris punteado: tendido posible | Azul: red de menor costo | Naranja: uso ≥ 80 % | Rojo: saturada | Amarillo: fuente" ]
                 ]
 
-{-| Convierte una `FlujoArista` del resultado en un tipo `Arista` para el inspector de Main.
--}
+
 flujoToArista : FlujoArista -> Arista
 flujoToArista f =
     { origen = f.origen
@@ -89,8 +91,6 @@ flujoToArista f =
     }
 
 
-{-| Tendido posible que la red de menor costo no eligió.
--}
 viewPosible : (Maybe Arista -> msg) -> Dict Int Nodo -> (Nodo -> ( Float, Float )) -> Arista -> Maybe (Svg msg)
 viewPosible onSelectEdge porId posicion a =
     Maybe.map2
@@ -112,6 +112,7 @@ viewPosible onSelectEdge porId posicion a =
                 , SvgAttr.strokeDasharray "4 4"
                 , SvgAttr.cursor "pointer"
                 , SvgEvents.onMouseOver (onSelectEdge (Just a))
+                , SvgEvents.onMouseOut (onSelectEdge Nothing)
                 , SvgEvents.onClick (onSelectEdge (Just a))
                 ]
                 []
@@ -120,8 +121,6 @@ viewPosible onSelectEdge porId posicion a =
         (Dict.get a.destino porId)
 
 
-{-| Arista de la red de menor costo con su flujo en el escenario elegido.
--}
 viewFlujo : (Maybe Arista -> msg) -> Dict Int Nodo -> (Nodo -> ( Float, Float )) -> FlujoArista -> Maybe (Svg msg)
 viewFlujo onSelectEdge porId posicion f =
     Maybe.map2
@@ -160,6 +159,7 @@ viewFlujo onSelectEdge porId posicion f =
                     , SvgAttr.strokeLinecap "round"
                     , SvgAttr.cursor "pointer"
                     , SvgEvents.onMouseOver (onSelectEdge (Just aristaEquiv))
+                    , SvgEvents.onMouseOut (onSelectEdge Nothing)
                     , SvgEvents.onClick (onSelectEdge (Just aristaEquiv))
                     ]
                     [ Svg.title [] [ Svg.text (String.fromInt o.zcta ++ " – " ++ String.fromInt d.zcta ++ ": " ++ detalle) ] ]
@@ -182,16 +182,24 @@ viewFlujo onSelectEdge porId posicion f =
         (Dict.get f.destino porId)
 
 
-viewNodo : (Int -> msg) -> (Nodo -> ( Float, Float )) -> Int -> Nodo -> Svg msg
-viewNodo onElegirFuente posicion fuente n =
+viewNodo : (Int -> msg) -> (Maybe Nodo -> msg) -> (Nodo -> ( Float, Float )) -> Int -> Float -> Nodo -> Svg msg
+viewNodo onElegirFuente onSelectNode posicion fuente incrementoPct n =
     let
         ( x, y ) =
             posicion n
 
         esFuente =
             n.id == fuente
+
+        demandaEscenario =
+            n.demanda * (1.0 + (incrementoPct / 100.0))
     in
-    g [ SvgAttr.cursor "pointer", onClick (onElegirFuente n.id) ]
+    g
+        [ SvgAttr.cursor "pointer"
+        , onClick (onElegirFuente n.id)
+        , SvgEvents.onMouseOver (onSelectNode (Just n))
+        , SvgEvents.onMouseOut (onSelectNode Nothing)
+        ]
         [ circle
             [ SvgAttr.cx (String.fromFloat x)
             , SvgAttr.cy (String.fromFloat y)
@@ -214,13 +222,16 @@ viewNodo onElegirFuente posicion fuente n =
             ]
             [ Svg.title []
                 [ Svg.text
-                    (String.fromInt n.zcta
+                    ("Zona C.P. "
+                        ++ String.fromInt n.zcta
                         ++ " ("
                         ++ n.tipoZona
-                        ++ ") – población "
+                        ++ ")\n• Población estimada: "
                         ++ String.fromInt (round n.poblacion)
-                        ++ " – demanda base "
-                        ++ millones n.demanda
+                        ++ " hab.\n• Demanda proyectada (+"
+                        ++ String.fromFloat incrementoPct
+                        ++ "%): "
+                        ++ millones demandaEscenario
                         ++ " gal/mes"
                     )
                 ]
@@ -231,21 +242,17 @@ viewNodo onElegirFuente posicion fuente n =
             , SvgAttr.fill "#cbd5e1"
             , SvgAttr.fontSize "10"
             , SvgAttr.textAnchor "middle"
+            , SvgAttr.pointerEvents "none"
             ]
             [ Svg.text (String.fromInt n.zcta) ]
         ]
 
 
-{-| 24045015 -> "24 M" (la API trabaja en galones por mes).
--}
 millones : Float -> String
 millones x =
     String.fromFloat (toFloat (round (x / 1.0e5)) / 10) ++ " M"
 
 
-{-| Proyecta lat/lon al lienzo SVG a partir de los límites de los propios nodos,
-conservando la proporción (un grado de longitud mide menos que uno de latitud).
--}
 proyector : List Nodo -> (Nodo -> ( Float, Float ))
 proyector nodos =
     let
@@ -298,6 +305,7 @@ proyector nodos =
         ( margen + sobranteX / 2 + (n.lon - minLon) * factorLon * escala
         , alto - margen - sobranteY / 2 - (n.lat - minLat) * escala
         )
+
 
 decodePosition : (Position -> msg) -> Decode.Decoder msg
 decodePosition tag =
