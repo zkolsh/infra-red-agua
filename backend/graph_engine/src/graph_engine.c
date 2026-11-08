@@ -59,7 +59,7 @@ static graph_status_t reserve_edges(graph_t* g, size_t needed) {
 		cap *= 2;
 	};
 
-	edge_t* p = arena_realloc(g->arena, g->edges, g->edge_capacity, cap * sizeof(edge_t));
+	edge_t* p = arena_realloc(g->arena, g->edges, g->edge_capacity * sizeof(edge_t), cap * sizeof(edge_t));
 	if (!p) {
 		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
@@ -135,8 +135,7 @@ void graph_deinit(graph_t* graph) {
 		return;
 	};
 
-	arena_t* a = graph->arena;
-	arena_deinit(a);
+	arena_deinit(graph->arena);
 };
 
 graph_status_t graph_add_vertex(graph_t* graph, vertex_id_t id) {
@@ -399,16 +398,28 @@ graph_status_t graph_subgraph_from_edges(const graph_t* original, const edge_t* 
 };
 
 /* Takes ownership of `edges` (may be NULL if count == 0). */
-static graph_status_t make_mst_result(edge_t* edges, size_t count, double total, mst_result_t** out) {
-	mst_result_t* r = malloc(sizeof(mst_result_t));
+static graph_status_t make_mst_result(const edge_t* edges, size_t count, double total, mst_result_t** out) {
+	mst_result_t* r = malloc(sizeof(*r));
 	if (!r) {
-		free(edges);
 		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
-	r->edges = edges;
+	edge_t* owned_edges = NULL;
+	if (count) {
+		owned_edges = malloc(count * sizeof(edge_t));
+
+		if (!owned_edges) {
+			free(r);
+			return GRAPH_STATUS_OUT_OF_MEMORY;
+		};
+
+		memcpy(owned_edges, edges, count * sizeof(edge_t));
+	};
+
+	r->edges = owned_edges;
 	r->edge_count = count;
 	r->total_cost = total;
+
 	*out = r;
 	return GRAPH_STATUS_OK;
 };
