@@ -160,7 +160,7 @@ graph_status_t graph_kruskal(const graph_t* graph, mst_result_t** out_result);
  * Edge capacity is preserved in the result.
  *
  * Returns GRAPH_STATUS_DISCONNECTED if no spanning tree exists. */
-graph_status_t graph_prim(const graph_t* graph, mst_result_t** out_result);
+graph_status_t graph_prim(const graph_t* graph, int source_id, mst_result_t** out_result);
 
 double mst_get_total_cost(const mst_result_t* result);
 size_t mst_get_edge_count(const mst_result_t* result);

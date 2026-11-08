@@ -48,6 +48,7 @@ class DemandsResponse(BaseModel):
 
 class MSTRequest(Graph):
     algorithm: MSTAlgorithm = "kruskal"
+    source_id: VertexId | None = None
 
 
 class _FlowParams(BaseModel):

@@ -11,8 +11,8 @@ router = APIRouter(prefix="/network", tags=["network"])
 def nodes(): return {"nodes": zone_service.layout()}
 
 @router.get("/base", response_model=BaseNetworkResponse)
-def base(source_id: int | None = Query(None, ge=0)
-         ): return network_service.build_base(source_id)
+def get_base_network(source_id: int | None = Query(None)):
+    return network_service.build_base(source_id=source_id)
 
 @router.get("/demands", response_model=DemandsResponse)
 def demands(growth_pct: float = Query(0.0, ge=-100)

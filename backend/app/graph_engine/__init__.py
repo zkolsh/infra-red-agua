@@ -170,11 +170,13 @@ def bind_functions(lib):
         ctypes.POINTER(ctypes.POINTER(MstResult)),
     ]
     lib.graph_kruskal.restype = graph_status_t
-
+    
     lib.graph_prim.argtypes = [
         ctypes.POINTER(Graph),
+        vertex_id_t,
         ctypes.POINTER(ctypes.POINTER(MstResult)),
     ]
+    
     lib.graph_prim.restype = graph_status_t
 
     lib.mst_get_total_cost.argtypes = [ctypes.POINTER(MstResult)]

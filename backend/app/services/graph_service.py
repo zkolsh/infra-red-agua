@@ -131,11 +131,9 @@ def validate(req) -> dict:
 
 def compute_mst(req) -> dict:
     lib = ge.get_library()
-    mst_fn = {"kruskal": lib.graph_kruskal,
-              "prim": lib.graph_prim}[req.algorithm]
-    with _graph(req) as g, _produced(mst_fn, lib.mst_deinit, ge.MstResult, g) as mst:
+    source_id = getattr(req, "source_id", None)
+    with _graph(req) as g, _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
         return _mst_result(lib, mst)
-
 
 def compute_flow(req) -> dict:
     lib = ge.get_library()

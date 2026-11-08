@@ -74,24 +74,33 @@ def build_base(source_id: int | None = None) -> dict:
     pairs = sorted(_connected_candidates(zones, nodes))
     km = {p: _km(by_id[p[0]], by_id[p[1]]) for p in pairs}
  
-    # 1. minimum-cost network and the flow it carries under the base demand
     measuring = [Edge(source=a, target=b, construction_cost=km[(a, b)] * COST_PER_KM, capacity=_UNLIMITED)
                  for a, b in pairs]
     base_demands = _without_source(zone_service.project_demands(0.0), source_id)
+
+    # 1. Se incluye source_id en ambas peticiones para forzar la reorientación desde el nuevo origen
     flow = graph_service.compute_flow(
         FlowRequest(nodes=nodes, edges=measuring, source_id=source_id, demands=base_demands))
-    mst = graph_service.compute_mst(MSTRequest(nodes=nodes, edges=measuring))
+    
+    mst = graph_service.compute_mst(
+        MSTRequest(nodes=nodes, edges=measuring, source_id=source_id))  # <--- CAMBIO 1: Se pasa source_id
+    
+    # Conjunto de aristas pertenecientes al MST recalculado desde source_id
+    mst_edges_set = {frozenset((e["source"], e["target"])) for e in mst["edges"]}
     mst_flow = {frozenset((e["source"], e["target"])): e["flow"] for e in flow["edges"]}
  
-    # 2. fixed capacities: standard pipe sizes calibrated with the base flow
+    # 2. Asignación de capacidades e in_mst basado explícitamente en el nuevo árbol
     edges = []
     for a, b in pairs:
-        carried = mst_flow.get(frozenset((a, b)))
+        pair_key = frozenset((a, b))
+        carried = mst_flow.get(pair_key)
+        
         edges.append({
-            "source": a, "target": b,
+            "source": a, 
+            "target": b,
             "construction_cost": round(km[(a, b)] * COST_PER_KM, 4),
             "capacity": _pipe_size(carried) if carried is not None else FIRST_PIPE,
-            "in_mst": carried is not None,
+            "in_mst": pair_key in mst_edges_set,  # <--- CAMBIO 2: Evaluado directamente sobre el MST
         })
  
     demand_now = base_demands

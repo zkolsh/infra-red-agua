@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c23 -ggdb -fsanitize=undefined,address -Iinclude
+CFLAGS := -Wall -Wextra -std=c2x -ggdb -Iinclude -fPIC
 LDFLAGS := -lm
 
 SRC_DIR := src
