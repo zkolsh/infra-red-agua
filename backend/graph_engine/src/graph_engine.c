@@ -445,69 +445,69 @@ graph_status_t graph_kruskal(const graph_t* graph, mst_result_t** out_result) {
 };
 
 graph_status_t graph_prim(const graph_t* graph, int source_id, mst_result_t** out_result) {
-    if (!graph || !out_result) {
-        return GRAPH_STATUS_INVALID_ARGUMENT;
-    };
+	if (!graph || !out_result) {
+		return GRAPH_STATUS_INVALID_ARGUMENT;
+	};
 
-    graph_status_t s = graph_validate(graph);
-    if (s != GRAPH_STATUS_OK) {
-        return s;
-    };
+	graph_status_t s = graph_validate(graph);
+	if (s != GRAPH_STATUS_OK) {
+		return s;
+	};
 
-    size_t n = graph->vertex_count;
-    if (n <= 1) {
-        return make_mst_result(NULL, 0, 0.0, out_result);
-    };
+	size_t n = graph->vertex_count;
+	if (n <= 1) {
+		return make_mst_result(NULL, 0, 0.0, out_result);
+	};
 
-    edge_t* chosen = malloc(n * sizeof(edge_t));
-    bool* in_tree = calloc(n, sizeof(bool));
-    if (!chosen || !in_tree) {
-        free(chosen); free(in_tree);
-        return GRAPH_STATUS_OUT_OF_MEMORY;
-    };
+	edge_t* chosen = malloc(n * sizeof(edge_t));
+	bool* in_tree = calloc(n, sizeof(bool));
+	if (!chosen || !in_tree) {
+		free(chosen); free(in_tree);
+		return GRAPH_STATUS_OUT_OF_MEMORY;
+	};
 
-    // 2. Buscar el índice del source_id en lugar de hardcodear el 0
-    size_t start_idx = find_vertex_index(graph, source_id);
-    if (start_idx == NOT_FOUND) {
-        free(chosen);
-        free(in_tree);
-        return GRAPH_STATUS_VERTEX_NOT_FOUND;
-    };
+	// 2. Buscar el índice del source_id en lugar de hardcodear el 0
+	size_t start_idx = find_vertex_index(graph, source_id);
+	if (start_idx == NOT_FOUND) {
+		free(chosen);
+		free(in_tree);
+		return GRAPH_STATUS_VERTEX_NOT_FOUND;
+	};
 
-    in_tree[start_idx] = true; // <--- Se inicia la raíz en la zona seleccionada
+	in_tree[start_idx] = true; // <--- Se inicia la raíz en la zona seleccionada
 
-    size_t count = 0;
-    double total = 0.0;
-    while (count < n - 1) {
-        size_t best = NOT_FOUND, best_new = 0;
+	size_t count = 0;
+	double total = 0.0;
+	while (count < n - 1) {
+		size_t best = NOT_FOUND, best_new = 0;
 
-        for (size_t i = 0; i < graph->edge_count; i++) {
-            const edge_t* e = &graph->edges[i];
-            size_t a = find_vertex_index(graph, e->source);
-            size_t b = find_vertex_index(graph, e->target);
-            if (in_tree[a] == in_tree[b]) {
-                continue;
-            };
+		for (size_t i = 0; i < graph->edge_count; i++) {
+			const edge_t* e = &graph->edges[i];
+			size_t a = find_vertex_index(graph, e->source);
+			size_t b = find_vertex_index(graph, e->target);
+			if (in_tree[a] == in_tree[b]) {
+				continue;
+			};
 
-            if (best == NOT_FOUND || e->construction_cost < graph->edges[best].construction_cost) {
-                best = i;
-                best_new = in_tree[a] ? b : a;
-            };
-        };
+			if (best == NOT_FOUND || e->construction_cost < graph->edges[best].construction_cost) {
+				best = i;
+				best_new = in_tree[a] ? b : a;
+			};
+		};
 
-        if (best == NOT_FOUND) {
-            free(chosen);
-            free(in_tree);
-            return GRAPH_STATUS_DISCONNECTED;
-        };
+		if (best == NOT_FOUND) {
+			free(chosen);
+			free(in_tree);
+			return GRAPH_STATUS_DISCONNECTED;
+		};
 
-        in_tree[best_new] = true;
-        chosen[count++] = graph->edges[best];
-        total += graph->edges[best].construction_cost;
-    };
+		in_tree[best_new] = true;
+		chosen[count++] = graph->edges[best];
+		total += graph->edges[best].construction_cost;
+	};
 
-    free(in_tree);
-    return make_mst_result(chosen, count, total, out_result);
+	free(in_tree);
+	return make_mst_result(chosen, count, total, out_result);
 };
 
 double mst_get_total_cost(const mst_result_t* result) {

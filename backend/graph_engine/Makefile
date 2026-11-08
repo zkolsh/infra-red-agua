@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c2x -ggdb -Iinclude -fPIC
+CFLAGS := -Wall -Wextra -std=c11 -Iinclude -fPIC
 LDFLAGS := -lm
 
 SRC_DIR := src
@@ -10,9 +10,16 @@ SRCS := $(wildcard $(SRC_DIR)/*.c)
 OBJS := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
-.PHONY: all clean
+.PHONY: all clean debug release
 
-all: $(LIB)
+all: debug
+
+debug: CFLAGS += -ggdb -fsanitize=address,undefined
+debug: LDFLAGS += -fsanitize=address,undefined
+debug: $(LIB)
+
+release: CFLAGS += -O2
+release: $(LIB)
 
 $(LIB): $(OBJS)
 	$(CC) -shared $(CFLAGS) $^ -o $@ $(LDFLAGS)
