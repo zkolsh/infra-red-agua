@@ -5,28 +5,37 @@ Integrantes del grupo:
 * Mateo Delmagro
 * Benicio Sánchez Mandato
 
-# Tutorial de Ejecución
+# Tutorial de Ejecución local
 
-## BackEnd
-
-En esta carpeta ejecuta
-```
-make venv (una única vez)
-make release
-```
-
-## FrontEnd
-
-En esta carpeta ejecuta
-
-```
-make release
-```
-
-Si en algun momento falla la compilación en alguna por X motivo se recomienda hacer
+Ambos proyectos tienen definido este target:
 
 ```
 make clean
 ```
 
-antes de intentar otra
+## Back end
+
+En la carpeta `backend/` instalá el entorno una sola vez:
+
+```
+make venv
+```
+
+Luego correlo localmente:
+
+```
+make release
+```
+
+Corré los tests:
+
+```
+make tests
+```
+
+## Front end
+
+En la carpeta `frontend/` corré la página localmente (require Elm y `http.server` en Python)
+```
+make release
+```
