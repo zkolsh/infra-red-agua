@@ -69,8 +69,14 @@ def _graph(req):
 @contextmanager
 def _mst_and_tree(lib, g, req):
     """The MST result plus the subgraph made of exactly its edges."""
-    algorithm = req.mst_algorithm
-    source_id = getattr(req, "source_id", 1)
+    algorithm = getattr(req, "mst_algorithm", "prim")
+    raw_source = getattr(req, "source_id", None)
+    if raw_source is not None:
+        source_id = int(raw_source)
+    elif hasattr(req, "nodes") and req.nodes:
+        source_id = int(req.nodes[0].id)
+    else:
+        source_id = 1
 
     if algorithm == "prim":
         with _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
@@ -139,8 +145,16 @@ def validate(req) -> dict:
 def compute_mst(req) -> dict:
     lib = ge.get_library()
     algorithm = getattr(req, "mst_algorithm", "prim")
-    source_id = getattr(req, "source_id", 1)
     
+    # Manejar si source_id no viene en req o si viene como None
+    raw_source = getattr(req, "source_id", None)
+    if raw_source is not None:
+        source_id = int(raw_source)
+    elif hasattr(req, "nodes") and req.nodes:
+        source_id = int(req.nodes[0].id)
+    else:
+        source_id = 1
+
     if algorithm == "prim":
         with _graph(req) as g, _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
             return _mst_result(lib, mst)
