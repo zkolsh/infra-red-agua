@@ -1,7 +1,9 @@
+#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+
 #if defined(__linux__) && !defined(USE_GENERIC_ARENA)
 #include "arena.h"
 
-#define _GNU_SOURCE
 #include <sys/mman.h>
 #include <unistd.h>
 #include <stdlib.h>

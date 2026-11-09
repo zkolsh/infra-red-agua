@@ -66,17 +66,24 @@ def _graph(req):
                 e.construction_cost, e.capacity))
         yield g
 
-
 @contextmanager
-def _mst_and_tree(lib, g, algorithm: str):
+def _mst_and_tree(lib, g, req):
     """The MST result plus the subgraph made of exactly its edges."""
-    mst_fn = {"kruskal": lib.graph_kruskal, "prim": lib.graph_prim}[algorithm]
-    with _produced(mst_fn, lib.mst_deinit, ge.MstResult, g) as mst:
-        edges, count = _fetch(mst, lib.mst_get_edge_count,
-                              lib.mst_get_edges, ge.Edge)
-        with _produced(lib.graph_subgraph_from_edges, lib.graph_deinit, ge.Graph, g, edges, count) as tree:
-            yield mst, tree
+    algorithm = req.mst_algorithm
+    source_id = getattr(req, "source_id", 1)
 
+    if algorithm == "prim":
+        with _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
+            edges, count = _fetch(mst, lib.mst_get_edge_count,
+                                  lib.mst_get_edges, ge.Edge)
+            with _produced(lib.graph_subgraph_from_edges, lib.graph_deinit, ge.Graph, g, edges, count) as tree:
+                yield mst, tree
+    else:
+        with _produced(lib.graph_kruskal, lib.mst_deinit, ge.MstResult, g) as mst:
+            edges, count = _fetch(mst, lib.mst_get_edge_count,
+                                  lib.mst_get_edges, ge.Edge)
+            with _produced(lib.graph_subgraph_from_edges, lib.graph_deinit, ge.Graph, g, edges, count) as tree:
+                yield mst, tree
 
 def _fetch(handle, count_fn, fill_fn, ctype):
     n = count_fn(handle)
@@ -131,19 +138,25 @@ def validate(req) -> dict:
 
 def compute_mst(req) -> dict:
     lib = ge.get_library()
-    source_id = getattr(req, "source_id", None)
-    with _graph(req) as g, _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
-        return _mst_result(lib, mst)
+    algorithm = getattr(req, "mst_algorithm", "prim")
+    source_id = getattr(req, "source_id", 1)
+    
+    if algorithm == "prim":
+        with _graph(req) as g, _produced(lib.graph_prim, lib.mst_deinit, ge.MstResult, g, source_id) as mst:
+            return _mst_result(lib, mst)
+    else:
+        with _graph(req) as g, _produced(lib.graph_kruskal, lib.mst_deinit, ge.MstResult, g) as mst:
+            return _mst_result(lib, mst)
 
 def compute_flow(req) -> dict:
     lib = ge.get_library()
-    with _graph(req) as g, _mst_and_tree(lib, g, req.mst_algorithm) as (_, tree):
+    with _graph(req) as g, _mst_and_tree(lib, g, req) as (_, tree):
         return _flow_result(lib, tree, req, req.demands)
 
 
 def compute_scenarios(req) -> dict:
     lib = ge.get_library()
-    with _graph(req) as g, _mst_and_tree(lib, g, req.mst_algorithm) as (mst, tree):
+    with _graph(req) as g, _mst_and_tree(lib, g, req) as (mst, tree):
         return {
             "mst": _mst_result(lib, mst),
             "scenarios": [{**_flow_result(lib, tree, req, s.demands), "label": s.label} for s in req.scenarios],
