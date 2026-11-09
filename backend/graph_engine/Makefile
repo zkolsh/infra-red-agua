@@ -1,6 +1,5 @@
 CC := gcc
-# sería -std=c23 pero beni tiene un gcc del año 1999 más o menos
-CFLAGS := -Wall -Wextra -std=c2x -Iinclude -fPIC -flto
+CFLAGS := -Wall -Wextra -std=c23 -Iinclude -fPIC -flto
 LDFLAGS := -lm -flto
 
 SRC_DIR := src
@@ -15,8 +14,8 @@ DEPS := $(OBJS:.o=.d)
 
 all: debug
 
-debug: CFLAGS += -ggdb -DDEBUG
-debug: LDFLAGS += 
+debug: CFLAGS += -ggdb -DDEBUG -fsanitize=undefined,address
+debug: LDFLAGS += -fsanitize=undefined,address
 debug: $(LIB)
 
 release: CFLAGS += -O2 -Werror -DNDEBUG

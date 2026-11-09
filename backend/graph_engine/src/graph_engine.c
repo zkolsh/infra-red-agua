@@ -818,6 +818,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		free(vertex_flows);
 		free(res);
 		arena_deinit(arena);
+		return GRAPH_STATUS_INVALID_GRAPH;
 	};
 
 	bool* seen = arena_calloc(arena, n * sizeof(bool));
@@ -827,6 +828,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		free(vertex_flows);
 		free(res);
 		arena_deinit(arena);
+		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
 	for (size_t i = 0; i < demand_count; i++) {
@@ -835,6 +837,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 			free(vertex_flows);
 			free(res);
 			arena_deinit(arena);
+			return GRAPH_STATUS_INVALID_ARGUMENT;
 		};
 
 		const size_t v = find_vertex_index(graph, demands[i].vertex_id);
@@ -843,6 +846,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 			free(vertex_flows);
 			free(res);
 			arena_deinit(arena);
+			return GRAPH_STATUS_VERTEX_NOT_FOUND;
 		};
 
 		if (seen[v]) {
@@ -850,6 +854,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 			free(vertex_flows);
 			free(res);
 			arena_deinit(arena);
+			return GRAPH_STATUS_INVALID_ARGUMENT;
 		};
 
 		seen[v] = true;
@@ -865,6 +870,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		free(vertex_flows);
 		free(res);
 		arena_deinit(arena);
+		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
 	for (size_t k = 0; k < m; k++) {
@@ -886,6 +892,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		free(vertex_flows);
 		free(res);
 		arena_deinit(arena);
+		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
 	while (find_augmenting_path(&r, src, sink, bfs, parent_arc, visited, list) > 0.0) {
@@ -900,6 +907,7 @@ static graph_status_t flow_solve(const graph_t* graph, vertex_id_t source, const
 		free(vertex_flows);
 		free(res);
 		arena_deinit(arena);
+		return GRAPH_STATUS_OUT_OF_MEMORY;
 	};
 
 	for (size_t k = 0; k < m; k++) {
